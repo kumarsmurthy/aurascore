@@ -18,12 +18,12 @@ type Store = {
   habits: Habit[];
 
   deleteHabit: (id: string) => void;
-  createHabit: (name?: string) => void;
+  createHabit: (name?: string, id?: string) => void; // Allow optional ID for fixed habits
   renameHabit: (id: string, name: string) => void;
   updateUserInfo: () => void;
 };
 
-// Define the five fixed habits
+// Define the five fixed habits with unique IDs
 const fixedHabits: Habit[] = [
   { id: "habit_talk", name: "Talk to humans for 30 mins", completed: [] },
   { id: "habit_meditate", name: "Meditate for 30 mins", completed: [] },
@@ -38,19 +38,17 @@ export const useUser = create<Store>()((set, get) => ({
   habits: [], // Initialize with an empty array; we'll populate it below
 
   deleteHabit: async (id) => {
-    const req = await api.post("/habits/delete", {
-      id,
-    });
+    const req = await api.post("/habits/delete", { id });
 
     if (req?.habits) {
       set((state) => ({ ...state, ...req, loaded: true }));
     }
   },
 
-  createHabit: async (name) => {
-    const req = await api.post("/habits/create", {
-      name: name,
-    });
+  createHabit: async (name, id) => {
+    // If an ID is provided (for fixed habits), include it in the request
+    const payload = id ? { name, id } : { name };
+    const req = await api.post("/habits/create", payload);
 
     if (req?.habits) {
       set((state) => ({ ...state, ...req, loaded: true }));
@@ -58,10 +56,7 @@ export const useUser = create<Store>()((set, get) => ({
   },
 
   renameHabit: async (id, name) => {
-    const req = await api.post("/habits/rename", {
-      id,
-      name,
-    });
+    const req = await api.post("/habits/rename", { id, name });
 
     if (req?.habits) {
       set((state) => ({ ...state, ...req, loaded: true }));
@@ -71,30 +66,35 @@ export const useUser = create<Store>()((set, get) => ({
   updateUserInfo: async () => {
     const info = await api.get("/habits");
 
-    if (info?.habits && info.habits.length > 0) {
-      // Check if fixed habits already exist
+    if (info?.habits) {
+      // Extract existing habit IDs
       const existingHabitIds = info.habits.map((habit: Habit) => habit.id);
+
+      // Determine which fixed habits are missing
       const missingFixedHabits = fixedHabits.filter(
         (fixedHabit) => !existingHabitIds.includes(fixedHabit.id)
       );
 
+      // If there are missing fixed habits, create them
       if (missingFixedHabits.length > 0) {
-        // Create missing fixed habits
+        // Create each missing fixed habit
         for (const habit of missingFixedHabits) {
-          await api.post("/habits/create", { name: habit.name, id: habit.id });
+          await get().createHabit(habit.name, habit.id);
         }
 
-        // Fetch updated habits after creation
+        // Optionally, you can refetch the habits after creation
         const updatedInfo = await api.get("/habits");
         set((state) => ({ ...state, ...updatedInfo, loaded: true }));
       } else {
+        // If all fixed habits exist, simply update the store
         set((state) => ({ ...state, ...info, loaded: true }));
       }
     } else {
       // If no habits exist, initialize with fixed habits
       for (const habit of fixedHabits) {
-        await api.post("/habits/create", { name: habit.name, id: habit.id });
+        await get().createHabit(habit.name, habit.id);
       }
+      // Optionally, set the fixed habits directly
       set({ habits: fixedHabits, loaded: true });
     }
   },
